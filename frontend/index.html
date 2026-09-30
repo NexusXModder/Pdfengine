@@ -70,50 +70,56 @@ body{background:#06070a;color:#f5f7fa;font-family:Inter,system-ui,sans-serif}
 import * as pdfjs from "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.min.mjs";
 pdfjs.GlobalWorkerOptions.workerSrc="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.worker.min.mjs";
 
-const $=x=>document.getElementById(x);
+const $=id=>document.getElementById(id);
 let pdf=null,data=null,current=1,selected=null,edits=[],scale=1;
-const MIN_SCALE=.35, MAX_SCALE=2.5;
+const MIN=.35,MAX=2.6;
 
 function status(x){$("status").textContent=x}
-function viewerWidth(){
-  const v=$("viewer");
-  return Math.max(280, v.clientWidth - 24);
-}
 function fitScale(page){
-  const base=page.getViewport({scale:1});
-  return Math.min(1.5, Math.max(.35, viewerWidth()/base.width));
+  const v=page.getViewport({scale:1});
+  return Math.max(MIN,Math.min(1.25,($("viewer").clientWidth-24)/v.width));
 }
-function updateZoomLabel(){
-  $("zoomLabel").textContent=Math.round(scale*100)+"%";
-}
-async function show(n, keepScale=false){
-  current=n;
-  const p=await pdf.getPage(n);
-  if(!keepScale) scale=fitScale(p);
-  const v=p.getViewport({scale}), c=$("canvas");
+function label(){ $("zoomLabel").textContent=Math.round(scale*100)+"%"; }
+
+async function renderCurrent(){
+  if(!pdf)return;
+  const p=await pdf.getPage(current);
+  const v=p.getViewport({scale});
+  const c=$("canvas");
   c.width=Math.ceil(v.width); c.height=Math.ceil(v.height);
   $("stage").style.width=c.width+"px";
   $("stage").style.height=c.height+"px";
   await p.render({canvasContext:c.getContext("2d"),viewport:v}).promise;
-  $("stage").classList.remove("hidden"); $("empty").classList.add("hidden");
-  $("info").textContent=`Page ${n} / ${pdf.numPages}`;
-  updateZoomLabel(); draw(data.pages[n-1]);
+  $("stage").classList.remove("hidden");$("empty").classList.add("hidden");
+  $("info").textContent=`Page ${current} / ${pdf.numPages}`;
+  label();
+  draw(data.pages[current-1]);
 }
-function draw(p){
+
+async function show(n,fit=true){
+  current=n;
+  const p=await pdf.getPage(n);
+  if(fit) scale=fitScale(p);
+  await renderCurrent();
+}
+
+function draw(page){
   $("overlay").innerHTML="";
-  p.items.forEach((it,i)=>{
-    const e=document.createElement("div"); e.className="editbox";
-    const b=it.bbox;
-    e.style.left=b[0]*scale+"px"; e.style.top=b[1]*scale+"px";
+  page.items.forEach((it,i)=>{
+    const b=it.bbox,e=document.createElement("div");
+    e.className="editbox";
+    e.style.left=(b[0]*scale)+"px";
+    e.style.top=(b[1]*scale)+"px";
     e.style.width=Math.max(10,(b[2]-b[0])*scale)+"px";
     e.style.height=Math.max(10,(b[3]-b[1])*scale)+"px";
     e.title=it.text;
-    if(selected && selected.page===p.page && selected.index===i) e.classList.add("selected");
-    e.onclick=ev=>{ev.preventDefault();ev.stopPropagation();select(p.page,i,it)};
-    e.ontouchend=ev=>{ev.preventDefault();ev.stopPropagation();select(p.page,i,it)};
+    if(selected&&selected.page===page.page&&selected.index===i)e.classList.add("selected");
+    e.onclick=ev=>{ev.preventDefault();ev.stopPropagation();select(page.page,i,it)};
+    e.ontouchend=ev=>{ev.preventDefault();ev.stopPropagation();select(page.page,i,it)};
     $("overlay").appendChild(e);
   });
 }
+
 function select(page,index,item){
   selected={page,index,item};
   $("selected").textContent=item.text;
@@ -125,55 +131,91 @@ function select(page,index,item){
   $("mobileInspector").classList.remove("hidden");
   draw(data.pages[current-1]);
 }
+
 function applyEdit(value){
   if(!selected)return;
-  const it=selected.item, e={page:selected.page,bbox:it.bbox,replacement:value,
-    kind:it.kind,font:it.font,size:it.size,color:it.color||[0,0,0]};
-  const k=edits.findIndex(x=>x.page===e.page && JSON.stringify(x.bbox)===JSON.stringify(e.bbox));
-  if(k>=0)edits[k]=e; else edits.push(e);
-  it.text=value;
+  const item=selected.item;
+  const edit={page:selected.page,bbox:item.bbox,replacement:value,kind:item.kind,
+              font:item.font,size:item.size,color:item.color||[0,0,0]};
+  const k=edits.findIndex(x=>x.page===edit.page&&JSON.stringify(x.bbox)===JSON.stringify(edit.bbox));
+  if(k>=0)edits[k]=edit;else edits.push(edit);
+  item.text=value;
   $("selected").textContent=value;
   $("mobileSelected").textContent=value;
   draw(data.pages[current-1]);
-  status("Edit staged — export when ready");
+  status("Edit staged — press Export to create the PDF");
 }
+
 async function openFile(){
-  const f=$("file").files[0]; if(!f)return;
-  $("name").textContent=f.name; status("Analyzing PDF…");
-  pdf=await pdfjs.getDocument({data:await f.arrayBuffer()}).promise;
-  const fd=new FormData(); fd.append("file",f);
-  const r=await fetch("/api/analyze",{method:"POST",body:fd});
-  if(!r.ok){status("Analysis failed");return}
-  data=await r.json(); edits=[]; $("pages").innerHTML="";
-  data.pages.forEach(p=>{
-    const b=document.createElement("button");
-    b.className="w-full text-left p-3 rounded-xl bg-white/5 hover:bg-white/10";
-    b.innerHTML=`<div>Page ${p.page}</div><div class="text-[10px] text-white/35 mt-1">${p.items.length} detected · ${p.mode}</div>`;
-    b.onclick=()=>show(p.page); $("pages").appendChild(b);
-  });
-  await show(1); status(`${data.page_count} pages loaded`); $("export").disabled=false;
+  const f=$("file").files[0];if(!f)return;
+  $("name").textContent=f.name;status("Analyzing PDF…");
+  try{
+    pdf=await pdfjs.getDocument({data:await f.arrayBuffer()}).promise;
+    const fd=new FormData();fd.append("file",f);
+    const r=await fetch("/api/analyze",{method:"POST",body:fd});
+    if(!r.ok){throw new Error(await r.text())}
+    data=await r.json();edits=[];$("pages").innerHTML="";
+    data.pages.forEach(p=>{
+      const b=document.createElement("button");
+      b.className="w-full text-left p-3 rounded-xl bg-white/5 hover:bg-white/10";
+      b.innerHTML=`<div>Page ${p.page}</div><div class="text-[10px] text-white/35 mt-1">${p.items.length} detected · ${p.mode}</div>`;
+      b.onclick=()=>show(p.page,true);$("pages").appendChild(b);
+    });
+    await show(1,true);
+    status(`${data.page_count} pages loaded`);
+    $("export").disabled=false;
+  }catch(err){status("Analysis failed");alert(String(err))}
 }
+
 $("open").onclick=$("choose").onclick=()=>$("file").click();
 $("file").onchange=openFile;
 $("apply").onclick=()=>applyEdit($("replacement").value);
 $("mobileApply").onclick=()=>applyEdit($("mobileReplacement").value);
-$("mobileClose").onclick=()=>{$("mobileInspector").classList.add("hidden")};
+$("mobileClose").onclick=()=>$("mobileInspector").classList.add("hidden");
 
-$("zoomIn").onclick=async()=>{scale=Math.min(MAX_SCALE,scale+.15);await show(current,true)};
-$("zoomOut").onclick=async()=>{scale=Math.max(MIN_SCALE,scale-.15);await show(current,true)};
-window.addEventListener("resize",async()=>{
-  if(pdf && window.innerWidth<1024) await show(current,false);
+$("zoomIn").onclick=async()=>{
+  scale=Math.min(MAX,scale*1.2);
+  await renderCurrent();
+};
+$("zoomOut").onclick=async()=>{
+  scale=Math.max(MIN,scale/1.2);
+  await renderCurrent();
+};
+$("zoomLabel").onclick=async()=>{
+  if(!pdf)return;
+  scale=fitScale(await pdf.getPage(current));
+  await renderCurrent();
+};
+window.addEventListener("resize",()=>{
+  if(!pdf)return;
+  if(window.innerWidth<1024)show(current,true);
 });
 
 $("export").onclick=async()=>{
   const f=$("file").files[0];
-  if(!f||!edits.length){status("No edits to export");return}
-  status("Rendering edited PDF…");
-  const fd=new FormData();fd.append("file",f);fd.append("edits_json",JSON.stringify(edits));
-  const r=await fetch("/api/edit",{method:"POST",body:fd});
-  if(!r.ok){status("Export failed");return}
-  const u=URL.createObjectURL(await r.blob()),a=document.createElement("a");
-  a.href=u;a.download="aetherpdf-edited.pdf";a.click();URL.revokeObjectURL(u);
-  status("Export complete");
+  if(!f){status("No PDF loaded");return}
+  if(!edits.length){status("No edits to export");return}
+  const btn=$("export");btn.disabled=true;status("Exporting…");
+  try{
+    const fd=new FormData();
+    fd.append("file",f);
+    fd.append("edits_json",JSON.stringify(edits));
+    const r=await fetch("/api/edit",{method:"POST",body:fd});
+    if(!r.ok){
+      let msg=await r.text();
+      try{msg=JSON.parse(msg).detail||msg}catch{}
+      throw new Error(msg);
+    }
+    const blob=await r.blob();
+    if(blob.size<100){throw new Error("Server returned an empty PDF.")}
+    const u=URL.createObjectURL(blob),a=document.createElement("a");
+    a.href=u;a.download="aetherpdf-edited.pdf";
+    document.body.appendChild(a);a.click();a.remove();
+    setTimeout(()=>URL.revokeObjectURL(u),3000);
+    status("Export complete ✓");
+  }catch(err){
+    console.error(err);status("Export failed");
+    alert("Export failed:\\n\\n"+err.message);
+  }finally{btn.disabled=false}
 };
 </script></body></html>
