@@ -1,13 +1,14 @@
-# AetherPDF Engine v0.2
-Unified PDF editor foundation for single-container deployment.
+# AetherPDF Engine v0.3
 
-- Frontend: HTML/CSS/JS + PDF.js
-- Backend: FastAPI + PyMuPDF + Pillow + Tesseract OCR
-- One Docker image serves the UI and API.
-- Digital/scanned pages are automatically detected behind one unified editor.
+Responsive unified PDF editor foundation.
 
-Run:
-docker build -t aetherpdf .
-docker run --rm -p 8000:8000 aetherpdf
+### v0.3 fixes
+- Responsive page fit-to-width on mobile
+- Zoom controls
+- Mobile text-selection inspector/bottom editor
+- Selected text highlight
+- Touch-friendly text hitboxes
+- Same single-container Docker deployment model
 
-This is a high-fidelity foundation, not a guarantee of pixel-identical editing for every PDF. Embedded/subset fonts, unusual encodings, clipping, transparency and scanned backgrounds can require specialized processing.
+The engine automatically analyzes each page as digital text or OCR behind one unified UI.
+Pixel-identical editing for every arbitrary PDF is not guaranteed; embedded/subset fonts and complex PDF drawing instructions require deeper resource-level editing.
