@@ -1,1 +1,65 @@
-ok
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AetherPDF — Unified PDF Editor</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+body{background:#06070a;color:#f5f7fa;font-family:Inter,system-ui,sans-serif}
+.glass{background:rgba(18,20,25,.78);backdrop-filter:blur(22px);border:1px solid rgba(255,255,255,.08)}
+#viewer{background:radial-gradient(circle at 50% 0,#171a22,#07080b 55%)}
+.page{box-shadow:0 24px 80px rgba(0,0,0,.5)}
+.editbox{position:absolute;border:1px solid rgba(90,180,255,.75);background:rgba(30,130,255,.08);cursor:text}
+.editbox:hover{background:rgba(30,130,255,.17)}
+</style></head>
+<body class="min-h-screen">
+<header class="h-16 px-4 md:px-6 flex items-center justify-between glass sticky top-0 z-50">
+<div class="flex items-center gap-3"><div class="w-9 h-9 rounded-xl bg-white text-black grid place-items-center font-black">A</div>
+<div><b>AetherPDF</b><div class="text-[10px] text-white/40 tracking-widest">UNIFIED ENGINE</div></div></div>
+<div class="flex gap-2"><button id="open" class="px-4 py-2 rounded-xl bg-white text-black">Open PDF</button>
+<button id="export" disabled class="px-4 py-2 rounded-xl bg-white/10 disabled:opacity-30">Export</button></div></header>
+<main class="h-[calc(100vh-64px)] flex">
+<aside class="w-72 hidden md:block border-r border-white/10 bg-black/20"><div class="p-4 border-b border-white/10">
+<div class="text-xs text-white/40 uppercase tracking-widest">Document</div><div id="name" class="mt-2 text-sm truncate">No PDF loaded</div></div>
+<div id="pages" class="p-3 space-y-2"></div></aside>
+<section class="flex-1 flex flex-col min-w-0"><div class="h-12 border-b border-white/10 flex items-center px-4">
+<span id="status" class="text-xs text-white/50">Open a PDF to begin</span><span id="info" class="ml-auto text-xs text-white/40"></span></div>
+<div id="viewer" class="flex-1 overflow-auto p-5 md:p-10"><div id="empty" class="h-full grid place-items-center text-center">
+<div><div class="text-5xl mb-5">▧</div><h1 class="text-2xl font-semibold">Edit existing PDF text</h1>
+<p class="text-sm text-white/40 mt-2 max-w-md">Digital and scanned pages use one unified editing experience.</p>
+<button id="choose" class="mt-6 px-5 py-3 rounded-2xl bg-white text-black">Choose PDF</button></div></div>
+<div id="stage" class="relative mx-auto w-fit hidden page"><canvas id="canvas"></canvas><div id="overlay" class="absolute inset-0"></div></div>
+</div></section>
+<aside class="w-80 hidden lg:block border-l border-white/10 bg-black/20"><div class="p-5 border-b border-white/10">
+<div class="text-xs text-white/40 uppercase tracking-widest">Inspector</div><div id="selected" class="mt-3 text-sm text-white/60">Select text on the page.</div></div>
+<div class="p-5 space-y-4"><textarea id="replacement" rows="4" class="w-full rounded-xl bg-white/5 border border-white/10 p-3 outline-none" placeholder="Edit selected text..."></textarea>
+<button id="apply" disabled class="w-full py-3 rounded-xl bg-white text-black font-semibold disabled:opacity-30">Apply edit</button>
+<div id="meta" class="text-xs text-white/35 leading-6"></div></div></aside></main>
+<input id="file" type="file" accept="application/pdf" hidden>
+<script type="module">
+import * as pdfjs from "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.min.mjs";
+pdfjs.GlobalWorkerOptions.workerSrc="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.worker.min.mjs";
+const $=x=>document.getElementById(x);let pdf=null,data=null,current=1,selected=null,edits=[];
+const scale=1.45;
+function status(x){$("status").textContent=x}
+async function show(n){current=n;let p=await pdf.getPage(n),v=p.getViewport({scale}),c=$("canvas");
+c.width=v.width;c.height=v.height;await p.render({canvasContext:c.getContext("2d"),viewport:v}).promise;
+$("stage").classList.remove("hidden");$("empty").classList.add("hidden");$("info").textContent=`Page ${n} / ${pdf.numPages}`;
+draw(data.pages[n-1])}
+function draw(p){$("overlay").innerHTML="";p.items.forEach((it,i)=>{let e=document.createElement("div");e.className="editbox";
+let b=it.bbox;e.style.left=b[0]*scale+"px";e.style.top=b[1]*scale+"px";e.style.width=Math.max(8,(b[2]-b[0])*scale)+"px";e.style.height=Math.max(8,(b[3]-b[1])*scale)+"px";
+e.title=it.text;e.onclick=x=>{x.stopPropagation();select(p.page,i,it)};$("overlay").appendChild(e)})}
+function select(page,index,item){selected={page,index,item};$("selected").textContent=item.text;$("replacement").value=item.text;
+$("meta").innerHTML=`Detection: <b>${item.kind}</b><br>Font: ${item.font||"unknown"}<br>Size: ${Number(item.size||0).toFixed(1)} pt${item.confidence?`<br>OCR confidence: ${item.confidence}%`:""}`;$("apply").disabled=false}
+async function openFile(){let f=$("file").files[0];if(!f)return;$("name").textContent=f.name;status("Analyzing PDF…");
+pdf=await pdfjs.getDocument({data:await f.arrayBuffer()}).promise;let fd=new FormData();fd.append("file",f);let r=await fetch("/api/analyze",{method:"POST",body:fd});
+if(!r.ok){status("Analysis failed");return}data=await r.json();edits=[];$("pages").innerHTML="";
+data.pages.forEach(p=>{let b=document.createElement("button");b.className="w-full text-left p-3 rounded-xl bg-white/5 hover:bg-white/10";
+b.innerHTML=`<div>Page ${p.page}</div><div class="text-[10px] text-white/35 mt-1">${p.items.length} detected · ${p.mode}</div>`;b.onclick=()=>show(p.page);$("pages").appendChild(b)});
+await show(1);status(`${data.page_count} pages loaded`);$("export").disabled=false}
+$("open").onclick=$("choose").onclick=()=>$("file").click();$("file").onchange=openFile;
+$("apply").onclick=()=>{if(!selected)return;let it=selected.item,e={page:selected.page,bbox:it.bbox,replacement:$("replacement").value,kind:it.kind,font:it.font,size:it.size,color:it.color||[0,0,0]};
+let k=edits.findIndex(x=>x.page===e.page&&JSON.stringify(x.bbox)===JSON.stringify(e.bbox));if(k>=0)edits[k]=e;else edits.push(e);it.text=e.replacement;draw(data.pages[current-1]);status("Edit staged — export when ready")};
+$("export").onclick=async()=>{let f=$("file").files[0];if(!f||!edits.length){status("No edits to export");return}status("Rendering edited PDF…");
+let fd=new FormData();fd.append("file",f);fd.append("edits_json",JSON.stringify(edits));let r=await fetch("/api/edit",{method:"POST",body:fd});
+if(!r.ok){status("Export failed");return}let u=URL.createObjectURL(await r.blob()),a=document.createElement("a");a.href=u;a.download="aetherpdf-edited.pdf";a.click();URL.revokeObjectURL(u);status("Export complete")};
+</script></body></html>
