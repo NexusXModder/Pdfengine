@@ -6,10 +6,20 @@
 <style>
 body{background:#06070a;color:#f5f7fa;font-family:Inter,system-ui,sans-serif}
 .glass{background:rgba(18,20,25,.78);backdrop-filter:blur(22px);border:1px solid rgba(255,255,255,.08)}
-#viewer{background:radial-gradient(circle at 50% 0,#171a22,#07080b 55%)}
-.page{box-shadow:0 24px 80px rgba(0,0,0,.5)}
-.editbox{position:absolute;border:1px solid rgba(90,180,255,.75);background:rgba(30,130,255,.08);cursor:text}
-.editbox:hover{background:rgba(30,130,255,.17)}
+#viewer{background:radial-gradient(circle at 50% 0,#171a22,#07080b 55%);touch-action:pan-x pan-y}
+.page{box-shadow:0 24px 80px rgba(0,0,0,.5);max-width:100%}
+.editbox{position:absolute;border:1px solid rgba(90,180,255,.75);background:rgba(30,130,255,.08);cursor:text;pointer-events:auto;box-sizing:border-box}
+.editbox:hover,.editbox.selected{background:rgba(30,130,255,.22);border-color:rgba(130,210,255,.95)}
+#stage{max-width:none}
+.mobileInspector{display:none}
+@media(max-width:1023px){
+  .mobileInspector{display:block;position:fixed;left:10px;right:10px;bottom:10px;z-index:80}
+}
+@media(max-width:640px){
+  #viewer{padding:8px}
+  #stage{margin:0 auto}
+  #replacement{min-height:54px}
+}
 </style></head>
 <body class="min-h-screen">
 <header class="h-16 px-4 md:px-6 flex items-center justify-between glass sticky top-0 z-50">
@@ -22,7 +32,13 @@ body{background:#06070a;color:#f5f7fa;font-family:Inter,system-ui,sans-serif}
 <div class="text-xs text-white/40 uppercase tracking-widest">Document</div><div id="name" class="mt-2 text-sm truncate">No PDF loaded</div></div>
 <div id="pages" class="p-3 space-y-2"></div></aside>
 <section class="flex-1 flex flex-col min-w-0"><div class="h-12 border-b border-white/10 flex items-center px-4">
-<span id="status" class="text-xs text-white/50">Open a PDF to begin</span><span id="info" class="ml-auto text-xs text-white/40"></span></div>
+<span id="status" class="text-xs text-white/50">Open a PDF to begin</span>
+<div class="ml-auto flex items-center gap-1">
+<button id="zoomOut" class="w-8 h-8 rounded-lg bg-white/5 text-white/70">−</button>
+<span id="zoomLabel" class="text-[11px] text-white/40 w-10 text-center">Fit</span>
+<button id="zoomIn" class="w-8 h-8 rounded-lg bg-white/5 text-white/70">+</button>
+<span id="info" class="text-xs text-white/40 ml-2"></span>
+</div></div>
 <div id="viewer" class="flex-1 overflow-auto p-5 md:p-10"><div id="empty" class="h-full grid place-items-center text-center">
 <div><div class="text-5xl mb-5">▧</div><h1 class="text-2xl font-semibold">Edit existing PDF text</h1>
 <p class="text-sm text-white/40 mt-2 max-w-md">Digital and scanned pages use one unified editing experience.</p>
@@ -34,32 +50,130 @@ body{background:#06070a;color:#f5f7fa;font-family:Inter,system-ui,sans-serif}
 <div class="p-5 space-y-4"><textarea id="replacement" rows="4" class="w-full rounded-xl bg-white/5 border border-white/10 p-3 outline-none" placeholder="Edit selected text..."></textarea>
 <button id="apply" disabled class="w-full py-3 rounded-xl bg-white text-black font-semibold disabled:opacity-30">Apply edit</button>
 <div id="meta" class="text-xs text-white/35 leading-6"></div></div></aside></main>
+
+<div id="mobileInspector" class="mobileInspector glass rounded-2xl p-3 hidden">
+  <div class="flex items-center gap-2">
+    <div class="min-w-0 flex-1">
+      <div class="text-[10px] uppercase tracking-widest text-white/35">Selected text</div>
+      <div id="mobileSelected" class="text-sm truncate text-white/80"></div>
+    </div>
+    <button id="mobileClose" class="w-8 h-8 rounded-full bg-white/10">×</button>
+  </div>
+  <div class="flex gap-2 mt-2">
+    <input id="mobileReplacement" class="flex-1 min-w-0 rounded-xl bg-white/5 border border-white/10 px-3 py-2 outline-none" placeholder="Replace text">
+    <button id="mobileApply" class="px-4 rounded-xl bg-white text-black font-semibold">Apply</button>
+  </div>
+</div>
+
 <input id="file" type="file" accept="application/pdf" hidden>
 <script type="module">
 import * as pdfjs from "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.min.mjs";
 pdfjs.GlobalWorkerOptions.workerSrc="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.worker.min.mjs";
-const $=x=>document.getElementById(x);let pdf=null,data=null,current=1,selected=null,edits=[];
-const scale=1.45;
+
+const $=x=>document.getElementById(x);
+let pdf=null,data=null,current=1,selected=null,edits=[],scale=1;
+const MIN_SCALE=.35, MAX_SCALE=2.5;
+
 function status(x){$("status").textContent=x}
-async function show(n){current=n;let p=await pdf.getPage(n),v=p.getViewport({scale}),c=$("canvas");
-c.width=v.width;c.height=v.height;await p.render({canvasContext:c.getContext("2d"),viewport:v}).promise;
-$("stage").classList.remove("hidden");$("empty").classList.add("hidden");$("info").textContent=`Page ${n} / ${pdf.numPages}`;
-draw(data.pages[n-1])}
-function draw(p){$("overlay").innerHTML="";p.items.forEach((it,i)=>{let e=document.createElement("div");e.className="editbox";
-let b=it.bbox;e.style.left=b[0]*scale+"px";e.style.top=b[1]*scale+"px";e.style.width=Math.max(8,(b[2]-b[0])*scale)+"px";e.style.height=Math.max(8,(b[3]-b[1])*scale)+"px";
-e.title=it.text;e.onclick=x=>{x.stopPropagation();select(p.page,i,it)};$("overlay").appendChild(e)})}
-function select(page,index,item){selected={page,index,item};$("selected").textContent=item.text;$("replacement").value=item.text;
-$("meta").innerHTML=`Detection: <b>${item.kind}</b><br>Font: ${item.font||"unknown"}<br>Size: ${Number(item.size||0).toFixed(1)} pt${item.confidence?`<br>OCR confidence: ${item.confidence}%`:""}`;$("apply").disabled=false}
-async function openFile(){let f=$("file").files[0];if(!f)return;$("name").textContent=f.name;status("Analyzing PDF…");
-pdf=await pdfjs.getDocument({data:await f.arrayBuffer()}).promise;let fd=new FormData();fd.append("file",f);let r=await fetch("/api/analyze",{method:"POST",body:fd});
-if(!r.ok){status("Analysis failed");return}data=await r.json();edits=[];$("pages").innerHTML="";
-data.pages.forEach(p=>{let b=document.createElement("button");b.className="w-full text-left p-3 rounded-xl bg-white/5 hover:bg-white/10";
-b.innerHTML=`<div>Page ${p.page}</div><div class="text-[10px] text-white/35 mt-1">${p.items.length} detected · ${p.mode}</div>`;b.onclick=()=>show(p.page);$("pages").appendChild(b)});
-await show(1);status(`${data.page_count} pages loaded`);$("export").disabled=false}
-$("open").onclick=$("choose").onclick=()=>$("file").click();$("file").onchange=openFile;
-$("apply").onclick=()=>{if(!selected)return;let it=selected.item,e={page:selected.page,bbox:it.bbox,replacement:$("replacement").value,kind:it.kind,font:it.font,size:it.size,color:it.color||[0,0,0]};
-let k=edits.findIndex(x=>x.page===e.page&&JSON.stringify(x.bbox)===JSON.stringify(e.bbox));if(k>=0)edits[k]=e;else edits.push(e);it.text=e.replacement;draw(data.pages[current-1]);status("Edit staged — export when ready")};
-$("export").onclick=async()=>{let f=$("file").files[0];if(!f||!edits.length){status("No edits to export");return}status("Rendering edited PDF…");
-let fd=new FormData();fd.append("file",f);fd.append("edits_json",JSON.stringify(edits));let r=await fetch("/api/edit",{method:"POST",body:fd});
-if(!r.ok){status("Export failed");return}let u=URL.createObjectURL(await r.blob()),a=document.createElement("a");a.href=u;a.download="aetherpdf-edited.pdf";a.click();URL.revokeObjectURL(u);status("Export complete")};
+function viewerWidth(){
+  const v=$("viewer");
+  return Math.max(280, v.clientWidth - 24);
+}
+function fitScale(page){
+  const base=page.getViewport({scale:1});
+  return Math.min(1.5, Math.max(.35, viewerWidth()/base.width));
+}
+function updateZoomLabel(){
+  $("zoomLabel").textContent=Math.round(scale*100)+"%";
+}
+async function show(n, keepScale=false){
+  current=n;
+  const p=await pdf.getPage(n);
+  if(!keepScale) scale=fitScale(p);
+  const v=p.getViewport({scale}), c=$("canvas");
+  c.width=Math.ceil(v.width); c.height=Math.ceil(v.height);
+  $("stage").style.width=c.width+"px";
+  $("stage").style.height=c.height+"px";
+  await p.render({canvasContext:c.getContext("2d"),viewport:v}).promise;
+  $("stage").classList.remove("hidden"); $("empty").classList.add("hidden");
+  $("info").textContent=`Page ${n} / ${pdf.numPages}`;
+  updateZoomLabel(); draw(data.pages[n-1]);
+}
+function draw(p){
+  $("overlay").innerHTML="";
+  p.items.forEach((it,i)=>{
+    const e=document.createElement("div"); e.className="editbox";
+    const b=it.bbox;
+    e.style.left=b[0]*scale+"px"; e.style.top=b[1]*scale+"px";
+    e.style.width=Math.max(10,(b[2]-b[0])*scale)+"px";
+    e.style.height=Math.max(10,(b[3]-b[1])*scale)+"px";
+    e.title=it.text;
+    if(selected && selected.page===p.page && selected.index===i) e.classList.add("selected");
+    e.onclick=ev=>{ev.preventDefault();ev.stopPropagation();select(p.page,i,it)};
+    e.ontouchend=ev=>{ev.preventDefault();ev.stopPropagation();select(p.page,i,it)};
+    $("overlay").appendChild(e);
+  });
+}
+function select(page,index,item){
+  selected={page,index,item};
+  $("selected").textContent=item.text;
+  $("replacement").value=item.text;
+  $("meta").innerHTML=`Detection: <b>${item.kind}</b><br>Font: ${item.font||"unknown"}<br>Size: ${Number(item.size||0).toFixed(1)} pt${item.confidence?`<br>OCR confidence: ${item.confidence}%`:""}`;
+  $("apply").disabled=false;
+  $("mobileSelected").textContent=item.text;
+  $("mobileReplacement").value=item.text;
+  $("mobileInspector").classList.remove("hidden");
+  draw(data.pages[current-1]);
+}
+function applyEdit(value){
+  if(!selected)return;
+  const it=selected.item, e={page:selected.page,bbox:it.bbox,replacement:value,
+    kind:it.kind,font:it.font,size:it.size,color:it.color||[0,0,0]};
+  const k=edits.findIndex(x=>x.page===e.page && JSON.stringify(x.bbox)===JSON.stringify(e.bbox));
+  if(k>=0)edits[k]=e; else edits.push(e);
+  it.text=value;
+  $("selected").textContent=value;
+  $("mobileSelected").textContent=value;
+  draw(data.pages[current-1]);
+  status("Edit staged — export when ready");
+}
+async function openFile(){
+  const f=$("file").files[0]; if(!f)return;
+  $("name").textContent=f.name; status("Analyzing PDF…");
+  pdf=await pdfjs.getDocument({data:await f.arrayBuffer()}).promise;
+  const fd=new FormData(); fd.append("file",f);
+  const r=await fetch("/api/analyze",{method:"POST",body:fd});
+  if(!r.ok){status("Analysis failed");return}
+  data=await r.json(); edits=[]; $("pages").innerHTML="";
+  data.pages.forEach(p=>{
+    const b=document.createElement("button");
+    b.className="w-full text-left p-3 rounded-xl bg-white/5 hover:bg-white/10";
+    b.innerHTML=`<div>Page ${p.page}</div><div class="text-[10px] text-white/35 mt-1">${p.items.length} detected · ${p.mode}</div>`;
+    b.onclick=()=>show(p.page); $("pages").appendChild(b);
+  });
+  await show(1); status(`${data.page_count} pages loaded`); $("export").disabled=false;
+}
+$("open").onclick=$("choose").onclick=()=>$("file").click();
+$("file").onchange=openFile;
+$("apply").onclick=()=>applyEdit($("replacement").value);
+$("mobileApply").onclick=()=>applyEdit($("mobileReplacement").value);
+$("mobileClose").onclick=()=>{$("mobileInspector").classList.add("hidden")};
+
+$("zoomIn").onclick=async()=>{scale=Math.min(MAX_SCALE,scale+.15);await show(current,true)};
+$("zoomOut").onclick=async()=>{scale=Math.max(MIN_SCALE,scale-.15);await show(current,true)};
+window.addEventListener("resize",async()=>{
+  if(pdf && window.innerWidth<1024) await show(current,false);
+});
+
+$("export").onclick=async()=>{
+  const f=$("file").files[0];
+  if(!f||!edits.length){status("No edits to export");return}
+  status("Rendering edited PDF…");
+  const fd=new FormData();fd.append("file",f);fd.append("edits_json",JSON.stringify(edits));
+  const r=await fetch("/api/edit",{method:"POST",body:fd});
+  if(!r.ok){status("Export failed");return}
+  const u=URL.createObjectURL(await r.blob()),a=document.createElement("a");
+  a.href=u;a.download="aetherpdf-edited.pdf";a.click();URL.revokeObjectURL(u);
+  status("Export complete");
+};
 </script></body></html>
