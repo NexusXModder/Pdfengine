@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, HTTPException, Form
 from fastapi.responses import Response, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -7,7 +7,7 @@ import io, json, os, glob, re
 from PIL import Image
 import pytesseract
 
-app = FastAPI(title="AetherPDF Engine", version="0.4.0")
+app = FastAPI(title="AetherPDF Engine", version="0.5.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 MAX_MB = 40
 
@@ -124,7 +124,7 @@ def background_color(page, rect):
 
 @app.get("/api/health")
 def health():
-    return {"ok":True,"version":"0.4.0"}
+    return {"ok":True,"version":"0.5.0"}
 
 @app.post("/api/analyze")
 async def analyze(file:UploadFile=File(...)):
@@ -161,7 +161,7 @@ class Edit(BaseModel):
     color:list[int]=[0,0,0]
 
 @app.post("/api/edit")
-async def edit(file:UploadFile=File(...),edits_json:str=""):
+async def edit(file:UploadFile=File(...),edits_json:str=Form("")):
     raw=await file.read()
     if len(raw)>MAX_MB*1024*1024:
         raise HTTPException(413,f"PDF exceeds {MAX_MB} MB")

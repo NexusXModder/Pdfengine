@@ -10,6 +10,7 @@ body{background:#06070a;color:#f5f7fa;font-family:Inter,system-ui,sans-serif}
 .page{box-shadow:0 24px 80px rgba(0,0,0,.5);max-width:100%}
 .editbox{position:absolute;border:1px solid rgba(90,180,255,.75);background:rgba(30,130,255,.08);cursor:text;pointer-events:auto;box-sizing:border-box}
 .editbox:hover,.editbox.selected{background:rgba(30,130,255,.22);border-color:rgba(130,210,255,.95)}
+.previewbox{position:absolute;box-sizing:border-box;overflow:hidden;display:flex;align-items:flex-start;white-space:pre-wrap;line-height:1.05;background:rgba(255,255,255,.96);border-radius:1px;pointer-events:none;padding:0 1px;z-index:3}
 #stage{max-width:none}
 .mobileInspector{display:none}
 @media(max-width:1023px){
@@ -117,6 +118,19 @@ function draw(page){
     e.onclick=ev=>{ev.preventDefault();ev.stopPropagation();select(page.page,i,it)};
     e.ontouchend=ev=>{ev.preventDefault();ev.stopPropagation();select(page.page,i,it)};
     $("overlay").appendChild(e);
+    if(it._edited){
+      const p=document.createElement("div");
+      p.className="previewbox";
+      p.textContent=it.text;
+      p.style.left=(b[0]*scale)+"px";
+      p.style.top=(b[1]*scale)+"px";
+      p.style.width=Math.max(10,(b[2]-b[0])*scale)+"px";
+      p.style.height=Math.max(10,(b[3]-b[1])*scale)+"px";
+      p.style.fontSize=Math.max(4,(Number(it.size||10)*scale))+"px";
+      p.style.color=`rgb(${(it.color||[0,0,0]).join(",")})`;
+      p.title="Preview of staged edit";
+      $("overlay").appendChild(p);
+    }
   });
 }
 
@@ -140,6 +154,7 @@ function applyEdit(value){
   const k=edits.findIndex(x=>x.page===edit.page&&JSON.stringify(x.bbox)===JSON.stringify(edit.bbox));
   if(k>=0)edits[k]=edit;else edits.push(edit);
   item.text=value;
+  item._edited=true;
   $("selected").textContent=value;
   $("mobileSelected").textContent=value;
   draw(data.pages[current-1]);
