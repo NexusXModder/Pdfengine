@@ -1,236 +1,200 @@
 <!doctype html>
-<html lang="en"><head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>AetherPDF — Unified PDF Editor</title>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>AetherPDF — PDF Editor</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <style>
-body{background:#06070a;color:#f5f7fa;font-family:Inter,system-ui,sans-serif}
-.glass{background:rgba(18,20,25,.78);backdrop-filter:blur(22px);border:1px solid rgba(255,255,255,.08)}
-#viewer{background:radial-gradient(circle at 50% 0,#171a22,#07080b 55%);touch-action:pan-x pan-y}
-.page{box-shadow:0 24px 80px rgba(0,0,0,.5);max-width:100%}
-.editbox{position:absolute;border:1px solid rgba(90,180,255,.75);background:rgba(30,130,255,.08);cursor:text;pointer-events:auto;box-sizing:border-box}
-.editbox:hover,.editbox.selected{background:rgba(30,130,255,.22);border-color:rgba(130,210,255,.95)}
-.previewbox{position:absolute;box-sizing:border-box;overflow:hidden;display:flex;align-items:flex-start;white-space:pre-wrap;line-height:1.05;background:rgba(255,255,255,.96);border-radius:1px;pointer-events:none;padding:0 1px;z-index:3}
-#stage{max-width:none}
+:root{color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#0b0c0f;color:#f5f7fa;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;overflow:hidden}
+button,input,textarea{font:inherit}
+.app{height:100dvh;display:flex;flex-direction:column}
+.topbar{height:64px;flex:none;background:rgba(16,17,21,.94);backdrop-filter:blur(24px);border-bottom:1px solid rgba(255,255,255,.08)}
+.toolrow{height:52px;flex:none;background:#111216;border-bottom:1px solid rgba(255,255,255,.07)}
+.viewer{flex:1;min-height:0;display:flex;background:#0b0c0f}
+.sidebar{width:232px;flex:none;background:#0f1014;border-right:1px solid rgba(255,255,255,.07);overflow:auto}
+.inspector{width:320px;flex:none;background:#0f1014;border-left:1px solid rgba(255,255,255,.07);overflow:auto}
+.canvasArea{flex:1;min-width:0;overflow:auto;background:radial-gradient(circle at 50% 0,#1a1c23 0,#0b0c0f 55%);padding:32px}
+.paper{position:relative;margin:0 auto;width:max-content;box-shadow:0 24px 80px rgba(0,0,0,.48);background:white}
+#canvas{display:block}
+.hit{position:absolute;cursor:text;border:1px solid transparent;border-radius:2px;background:transparent;transition:.12s}
+.hit:hover{background:rgba(255,255,255,.045);border-color:rgba(255,255,255,.18)}
+.hit.selected{background:rgba(120,180,255,.10);border-color:rgba(180,215,255,.9);box-shadow:0 0 0 1px rgba(180,215,255,.16)}
+.hit.edited{background:transparent;border-color:transparent}
+.thumb{display:block;width:100%;padding:8px 10px;color:#a6a9b1;text-align:left;border-radius:12px}
+.thumb:hover{background:rgba(255,255,255,.05);color:white}
+.thumb.active{background:rgba(255,255,255,.08);color:white}
+.thumbCanvas{display:block;width:100%;height:auto;background:white;border-radius:5px;box-shadow:0 8px 24px rgba(0,0,0,.28)}
+.panelTitle{font-size:11px;text-transform:uppercase;letter-spacing:.14em;color:#777b86}
+.primary{background:#fff;color:#08090b}
+.soft{background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.08)}
+.soft:hover{background:rgba(255,255,255,.11)}
+.disabled{opacity:.35;pointer-events:none}
 .mobileInspector{display:none}
-@media(max-width:1023px){
-  .mobileInspector{display:block;position:fixed;left:10px;right:10px;bottom:10px;z-index:80}
-}
-@media(max-width:640px){
-  #viewer{padding:8px}
-  #stage{margin:0 auto}
-  #replacement{min-height:54px}
-}
-</style></head>
-<body class="min-h-screen">
-<header class="h-16 px-4 md:px-6 flex items-center justify-between glass sticky top-0 z-50">
-<div class="flex items-center gap-3"><div class="w-9 h-9 rounded-xl bg-white text-black grid place-items-center font-black">A</div>
-<div><b>AetherPDF</b><div class="text-[10px] text-white/40 tracking-widest">UNIFIED ENGINE</div></div></div>
-<div class="flex gap-2"><button id="open" class="px-4 py-2 rounded-xl bg-white text-black">Open PDF</button>
-<button id="export" disabled class="px-4 py-2 rounded-xl bg-white/10 disabled:opacity-30">Export</button></div></header>
-<main class="h-[calc(100vh-64px)] flex">
-<aside class="w-72 hidden md:block border-r border-white/10 bg-black/20"><div class="p-4 border-b border-white/10">
-<div class="text-xs text-white/40 uppercase tracking-widest">Document</div><div id="name" class="mt-2 text-sm truncate">No PDF loaded</div></div>
-<div id="pages" class="p-3 space-y-2"></div></aside>
-<section class="flex-1 flex flex-col min-w-0"><div class="h-12 border-b border-white/10 flex items-center px-4">
-<span id="status" class="text-xs text-white/50">Open a PDF to begin</span>
-<div class="ml-auto flex items-center gap-1">
-<button id="zoomOut" class="w-8 h-8 rounded-lg bg-white/5 text-white/70">−</button>
-<span id="zoomLabel" class="text-[11px] text-white/40 w-10 text-center">Fit</span>
-<button id="zoomIn" class="w-8 h-8 rounded-lg bg-white/5 text-white/70">+</button>
-<span id="info" class="text-xs text-white/40 ml-2"></span>
-</div></div>
-<div id="viewer" class="flex-1 overflow-auto p-5 md:p-10"><div id="empty" class="h-full grid place-items-center text-center">
-<div><div class="text-5xl mb-5">▧</div><h1 class="text-2xl font-semibold">Edit existing PDF text</h1>
-<p class="text-sm text-white/40 mt-2 max-w-md">Digital and scanned pages use one unified editing experience.</p>
-<button id="choose" class="mt-6 px-5 py-3 rounded-2xl bg-white text-black">Choose PDF</button></div></div>
-<div id="stage" class="relative mx-auto w-fit hidden page"><canvas id="canvas"></canvas><div id="overlay" class="absolute inset-0"></div></div>
-</div></section>
-<aside class="w-80 hidden lg:block border-l border-white/10 bg-black/20"><div class="p-5 border-b border-white/10">
-<div class="text-xs text-white/40 uppercase tracking-widest">Inspector</div><div id="selected" class="mt-3 text-sm text-white/60">Select text on the page.</div></div>
-<div class="p-5 space-y-4"><textarea id="replacement" rows="4" class="w-full rounded-xl bg-white/5 border border-white/10 p-3 outline-none" placeholder="Edit selected text..."></textarea>
-<button id="apply" disabled class="w-full py-3 rounded-xl bg-white text-black font-semibold disabled:opacity-30">Apply edit</button>
-<div id="meta" class="text-xs text-white/35 leading-6"></div></div></aside></main>
-
-<div id="mobileInspector" class="mobileInspector glass rounded-2xl p-3 hidden">
-  <div class="flex items-center gap-2">
-    <div class="min-w-0 flex-1">
-      <div class="text-[10px] uppercase tracking-widest text-white/35">Selected text</div>
-      <div id="mobileSelected" class="text-sm truncate text-white/80"></div>
+.toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);z-index:100;background:rgba(20,21,26,.95);border:1px solid rgba(255,255,255,.1);backdrop-filter:blur(20px);padding:10px 15px;border-radius:13px;font-size:12px;color:#e9eaf0;box-shadow:0 14px 40px rgba(0,0,0,.4)}
+.spinner{width:15px;height:15px;border:2px solid rgba(0,0,0,.18);border-top-color:#111;border-radius:50%;animation:spin .7s linear infinite;display:inline-block}@keyframes spin{to{transform:rotate(360deg)}}
+@media(max-width:1023px){.sidebar{display:none}.inspector{display:none}.canvasArea{padding:14px}.mobileInspector{display:block;position:fixed;left:10px;right:10px;bottom:10px;z-index:80;background:rgba(18,20,25,.94);backdrop-filter:blur(24px);border:1px solid rgba(255,255,255,.1);border-radius:20px;padding:12px;box-shadow:0 18px 50px rgba(0,0,0,.5)}}
+@media(max-width:640px){.topbar{height:58px}.toolrow{height:48px}.brandSub{display:none}.brandName{font-size:14px}.openText{display:none}.exportText{display:none}.canvasArea{padding:8px}.mobileInspector{bottom:8px}.paper{box-shadow:0 14px 40px rgba(0,0,0,.4)}}
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="topbar flex items-center justify-between px-3 md:px-5 gap-3">
+    <div class="flex items-center gap-3 min-w-0">
+      <div class="w-9 h-9 rounded-xl primary grid place-items-center font-black">A</div>
+      <div class="min-w-0"><div class="brandName font-semibold tracking-tight">AetherPDF</div><div class="brandSub text-[10px] text-white/35 tracking-[.2em]">PDF EDITOR</div></div>
     </div>
-    <button id="mobileClose" class="w-8 h-8 rounded-full bg-white/10">×</button>
+    <div class="flex items-center gap-2">
+      <button id="open" class="primary rounded-xl px-4 py-2 text-sm font-semibold"><span class="openText">Open PDF</span><span class="hidden sm:inline openText">⌄</span></button>
+      <button id="export" class="soft rounded-xl px-4 py-2 text-sm font-semibold disabled" disabled><span id="exportLabel">Export</span></button>
+    </div>
+  </header>
+
+  <div class="toolrow flex items-center px-3 md:px-4 gap-2">
+    <div class="flex items-center gap-1">
+      <button id="zoomOut" class="soft w-8 h-8 rounded-lg">−</button>
+      <button id="zoomLabel" class="text-[11px] text-white/55 w-12">Fit</button>
+      <button id="zoomIn" class="soft w-8 h-8 rounded-lg">+</button>
+    </div>
+    <div class="h-5 w-px bg-white/10"></div>
+    <button id="prev" class="soft w-8 h-8 rounded-lg">‹</button>
+    <span id="pageLabel" class="text-[11px] text-white/50 min-w-[78px] text-center">Page 0 / 0</span>
+    <button id="next" class="soft w-8 h-8 rounded-lg">›</button>
+    <div class="h-5 w-px bg-white/10"></div>
+    <button id="undo" class="soft px-3 h-8 rounded-lg text-xs disabled">Undo</button>
+    <button id="clear" class="soft px-3 h-8 rounded-lg text-xs disabled">Clear</button>
+    <div id="status" class="ml-auto text-[11px] text-white/40 truncate max-w-[48%]">Open a PDF to begin</div>
   </div>
-  <div class="flex gap-2 mt-2">
-    <input id="mobileReplacement" class="flex-1 min-w-0 rounded-xl bg-white/5 border border-white/10 px-3 py-2 outline-none" placeholder="Replace text">
-    <button id="mobileApply" class="px-4 rounded-xl bg-white text-black font-semibold">Apply</button>
-  </div>
+
+  <main class="viewer">
+    <aside class="sidebar">
+      <div class="p-4 border-b border-white/10"><div class="panelTitle">Document</div><div id="name" class="mt-2 text-sm truncate text-white/75">No PDF loaded</div></div>
+      <div class="p-3"><div class="panelTitle px-2 mb-2">Pages</div><div id="pages"></div></div>
+    </aside>
+
+    <section id="canvasArea" class="canvasArea">
+      <div id="empty" class="h-full grid place-items-center text-center">
+        <div><div class="w-16 h-16 rounded-2xl soft grid place-items-center mx-auto text-2xl">PDF</div><h1 class="text-2xl font-semibold mt-5">Edit your PDF</h1><p class="text-sm text-white/40 mt-2 max-w-sm">Open a PDF, tap any detected text, edit it, and the actual edited PDF will be rendered back into the viewer.</p><button id="choose" class="primary rounded-xl px-5 py-3 mt-6 text-sm font-semibold">Choose PDF</button></div>
+      </div>
+      <div id="paper" class="paper hidden"><canvas id="canvas"></canvas><div id="overlay"></div></div>
+    </section>
+
+    <aside class="inspector">
+      <div class="p-5 border-b border-white/10"><div class="panelTitle">Edit text</div><div id="selectedLabel" class="mt-3 text-sm text-white/50">Select text on the page.</div></div>
+      <div class="p-5 space-y-4">
+        <div><label class="text-xs text-white/40">Selected text</label><textarea id="replacement" rows="5" class="mt-2 w-full rounded-xl soft p-3 outline-none resize-none" placeholder="Select text first"></textarea></div>
+        <button id="apply" disabled class="primary w-full rounded-xl py-3 text-sm font-semibold disabled:opacity-30">Apply & preview</button>
+        <div id="meta" class="text-[11px] text-white/35 leading-6"></div>
+        <div class="pt-3 border-t border-white/10 text-[11px] text-white/30 leading-5">The editor keeps the original page geometry. For digital PDFs it reuses the original embedded font when the PDF exposes it; scanned pages use OCR and background reconstruction.</div>
+      </div>
+    </aside>
+  </main>
 </div>
 
+<div id="mobileInspector" class="mobileInspector hidden">
+  <div class="flex items-center gap-2"><div class="min-w-0 flex-1"><div class="panelTitle">Edit text</div><div id="mobileSelected" class="mt-1 text-sm truncate text-white/75"></div></div><button id="mobileClose" class="w-8 h-8 rounded-full soft">×</button></div>
+  <div class="flex gap-2 mt-3"><input id="mobileReplacement" class="flex-1 min-w-0 rounded-xl soft px-3 py-2 outline-none text-sm" placeholder="Replace text"><button id="mobileApply" class="primary rounded-xl px-4 text-sm font-semibold">Apply</button></div>
+</div>
+<div id="toast" class="toast hidden"></div>
 <input id="file" type="file" accept="application/pdf" hidden>
+
 <script type="module">
 import * as pdfjs from "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.min.mjs";
 pdfjs.GlobalWorkerOptions.workerSrc="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.worker.min.mjs";
 
 const $=id=>document.getElementById(id);
-let pdf=null,data=null,current=1,selected=null,edits=[],scale=1;
-const MIN=.35,MAX=2.6;
+let sourceFile=null, sourceBytes=null, pdf=null, analysis=null, current=1, scale=1, selected=null;
+let edits=[], history=[]; let busy=false;
+const MIN=.35,MAX=3;
 
-function status(x){$("status").textContent=x}
-function fitScale(page){
-  const v=page.getViewport({scale:1});
-  return Math.max(MIN,Math.min(1.25,($("viewer").clientWidth-24)/v.width));
+function toast(msg){const t=$("toast");t.textContent=msg;t.classList.remove("hidden");clearTimeout(window.__toast);window.__toast=setTimeout(()=>t.classList.add("hidden"),2200)}
+function status(msg){$("status").textContent=msg}
+function updatePageLabel(){$("pageLabel").textContent=pdf?`Page ${current} / ${pdf.numPages}`:"Page 0 / 0"}
+function updateButtons(){
+  const has=!!pdf; $("export").disabled=!has||!edits.length||busy; $("undo").classList.toggle("disabled",!history.length||busy); $("clear").classList.toggle("disabled",!edits.length||busy);
+  $("prev").classList.toggle("disabled",!has||current<=1); $("next").classList.toggle("disabled",!has||current>=pdf?.numPages);
 }
-function label(){ $("zoomLabel").textContent=Math.round(scale*100)+"%"; }
+function fitScale(page){const v=page.getViewport({scale:1});const w=$("canvasArea").clientWidth-28;return Math.max(MIN,Math.min(1.5,w/v.width))}
+function zoomLabel(){$("zoomLabel").textContent=Math.round(scale*100)+"%"}
 
 async function renderCurrent(){
-  if(!pdf)return;
-  const p=await pdf.getPage(current);
-  const v=p.getViewport({scale});
-  const c=$("canvas");
-  c.width=Math.ceil(v.width); c.height=Math.ceil(v.height);
-  $("stage").style.width=c.width+"px";
-  $("stage").style.height=c.height+"px";
-  await p.render({canvasContext:c.getContext("2d"),viewport:v}).promise;
-  $("stage").classList.remove("hidden");$("empty").classList.add("hidden");
-  $("info").textContent=`Page ${current} / ${pdf.numPages}`;
-  label();
-  draw(data.pages[current-1]);
+  if(!pdf)return; const p=await pdf.getPage(current); const v=p.getViewport({scale}); const c=$("canvas"); c.width=Math.ceil(v.width);c.height=Math.ceil(v.height);
+  $("paper").style.width=c.width+"px";$("paper").style.height=c.height+"px"; await p.render({canvasContext:c.getContext("2d"),viewport:v}).promise;
+  $("paper").classList.remove("hidden");$("empty").classList.add("hidden"); updatePageLabel();zoomLabel();drawHits();
 }
+async function showPage(n,fit=true){if(!pdf)return;current=Math.max(1,Math.min(pdf.numPages,n));const p=await pdf.getPage(current);if(fit)scale=fitScale(p);await renderCurrent();}
 
-async function show(n,fit=true){
-  current=n;
-  const p=await pdf.getPage(n);
-  if(fit) scale=fitScale(p);
-  await renderCurrent();
-}
-
-function draw(page){
-  $("overlay").innerHTML="";
+function drawHits(){
+  const overlay=$("overlay");overlay.innerHTML=""; if(!analysis)return; const page=analysis.pages[current-1]; if(!page)return;
+  overlay.style.width=$("canvas").width+"px";overlay.style.height=$("canvas").height+"px";overlay.style.position="absolute";overlay.style.inset="0";
   page.items.forEach((it,i)=>{
-    const b=it.bbox,e=document.createElement("div");
-    e.className="editbox";
-    e.style.left=(b[0]*scale)+"px";
-    e.style.top=(b[1]*scale)+"px";
-    e.style.width=Math.max(10,(b[2]-b[0])*scale)+"px";
-    e.style.height=Math.max(10,(b[3]-b[1])*scale)+"px";
-    e.title=it.text;
+    const b=it.bbox; const e=document.createElement("div");e.className="hit";
+    e.style.left=(b[0]*scale)+"px";e.style.top=(b[1]*scale)+"px";e.style.width=Math.max(7,(b[2]-b[0])*scale)+"px";e.style.height=Math.max(7,(b[3]-b[1])*scale)+"px";
+    const edited=edits.find(x=>x.page===page.page && JSON.stringify(x.bbox)===JSON.stringify(it.bbox));
+    if(edited)e.classList.add("edited");
     if(selected&&selected.page===page.page&&selected.index===i)e.classList.add("selected");
-    e.onclick=ev=>{ev.preventDefault();ev.stopPropagation();select(page.page,i,it)};
-    e.ontouchend=ev=>{ev.preventDefault();ev.stopPropagation();select(page.page,i,it)};
-    $("overlay").appendChild(e);
-    if(it._edited){
-      const p=document.createElement("div");
-      p.className="previewbox";
-      p.textContent=it.text;
-      p.style.left=(b[0]*scale)+"px";
-      p.style.top=(b[1]*scale)+"px";
-      p.style.width=Math.max(10,(b[2]-b[0])*scale)+"px";
-      p.style.height=Math.max(10,(b[3]-b[1])*scale)+"px";
-      p.style.fontSize=Math.max(4,(Number(it.size||10)*scale))+"px";
-      p.style.color=`rgb(${(it.color||[0,0,0]).join(",")})`;
-      p.title="Preview of staged edit";
-      $("overlay").appendChild(p);
-    }
+    e.title=edited?edited.replacement:it.text;
+    e.addEventListener("click",ev=>{ev.stopPropagation();selectItem(page.page,i,it)});
+    e.addEventListener("touchend",ev=>{ev.preventDefault();ev.stopPropagation();selectItem(page.page,i,it)},{passive:false});
+    overlay.appendChild(e);
   });
 }
 
-function select(page,index,item){
-  selected={page,index,item};
-  $("selected").textContent=item.text;
-  $("replacement").value=item.text;
-  $("meta").innerHTML=`Detection: <b>${item.kind}</b><br>Font: ${item.font||"unknown"}<br>Size: ${Number(item.size||0).toFixed(1)} pt${item.confidence?`<br>OCR confidence: ${item.confidence}%`:""}`;
-  $("apply").disabled=false;
-  $("mobileSelected").textContent=item.text;
-  $("mobileReplacement").value=item.text;
-  $("mobileInspector").classList.remove("hidden");
-  draw(data.pages[current-1]);
+function selectItem(page,index,item){
+  selected={page,index,item}; const existing=edits.find(x=>x.page===page&&JSON.stringify(x.bbox)===JSON.stringify(item.bbox)); const value=existing?existing.replacement:item.text;
+  $("selectedLabel").textContent=value;$("replacement").value=value;$("apply").disabled=false;
+  $("mobileSelected").textContent=value;$("mobileReplacement").value=value;$("mobileInspector").classList.remove("hidden");
+  $("meta").innerHTML=`Type: <b>${item.kind}</b><br>Font: ${escapeHtml(item.font||"unknown")}<br>Size: ${Number(item.size||0).toFixed(1)} pt${item.confidence?`<br>OCR confidence: ${item.confidence}%`:""}`;
+  drawHits();
+}
+function escapeHtml(s){return String(s).replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#039;"}[m]))}
+
+async function loadRendered(bytes){
+  pdf=await pdfjs.getDocument({data:bytes}).promise; await showPage(current,false); updateButtons();
 }
 
-function applyEdit(value){
-  if(!selected)return;
-  const item=selected.item;
-  const edit={page:selected.page,bbox:item.bbox,replacement:value,kind:item.kind,
-              font:item.font,size:item.size,color:item.color||[0,0,0]};
-  const k=edits.findIndex(x=>x.page===edit.page&&JSON.stringify(x.bbox)===JSON.stringify(edit.bbox));
-  if(k>=0)edits[k]=edit;else edits.push(edit);
-  item.text=value;
-  item._edited=true;
-  $("selected").textContent=value;
-  $("mobileSelected").textContent=value;
-  draw(data.pages[current-1]);
-  status("Edit staged — press Export to create the PDF");
+async function requestEditPreview(){
+  if(!sourceFile||!edits.length)return;
+  busy=true;updateButtons();$("apply").disabled=true;$("exportLabel").textContent="Working…";status("Rendering your edit…");
+  try{
+    const fd=new FormData();fd.append("file",sourceFile);fd.append("edits_json",JSON.stringify(edits));
+    const r=await fetch("/api/edit",{method:"POST",body:fd});
+    if(!r.ok){let m=await r.text();try{m=JSON.parse(m).detail||m}catch{}throw new Error(m)}
+    const blob=await r.blob();if(blob.size<100)throw new Error("Server returned an empty PDF.");
+    const bytes=new Uint8Array(await blob.arrayBuffer()); await loadRendered(bytes);
+    status("Edit applied — preview is the actual edited PDF");toast("Edit applied");
+  }catch(e){console.error(e);status("Edit preview failed");toast(e.message||"Edit failed");}
+  finally{busy=false;$("exportLabel").textContent="Export";updateButtons();if(selected)$("apply").disabled=false;}
 }
+
+async function applyEdit(value){
+  if(!selected||busy)return; value=String(value??""); if(!value.trim()){toast("Replacement cannot be empty");return}
+  const item=selected.item; const next={page:selected.page,bbox:item.bbox,replacement:value,kind:item.kind,font:item.font,size:item.size,color:item.color||[0,0,0]};
+  const key=x=>x.page+"|"+JSON.stringify(x.bbox); const old=[...edits]; const idx=edits.findIndex(x=>key(x)===key(next)); if(idx>=0)edits[idx]=next;else edits.push(next); history.push(old);
+  $("selectedLabel").textContent=value;$("mobileSelected").textContent=value;drawHits();await requestEditPreview();
+}
+
+async function undo(){if(!history.length||busy)return;edits=history.pop();selected=null;$("mobileInspector").classList.add("hidden");if(edits.length)await requestEditPreview();else{await loadRendered(sourceBytes);status("Changes cleared");updateButtons()}}
+async function clearEdits(){if(!edits.length||busy)return;history.push([...edits]);edits=[];selected=null;$("mobileInspector").classList.add("hidden");await loadRendered(sourceBytes);status("All edits cleared");updateButtons()}
 
 async function openFile(){
-  const f=$("file").files[0];if(!f)return;
-  $("name").textContent=f.name;status("Analyzing PDF…");
+  const f=$("file").files[0];if(!f)return; sourceFile=f;sourceBytes=new Uint8Array(await f.arrayBuffer());edits=[];history=[];selected=null;$("name").textContent=f.name;status("Analyzing PDF…");
   try{
-    pdf=await pdfjs.getDocument({data:await f.arrayBuffer()}).promise;
-    const fd=new FormData();fd.append("file",f);
-    const r=await fetch("/api/analyze",{method:"POST",body:fd});
-    if(!r.ok){throw new Error(await r.text())}
-    data=await r.json();edits=[];$("pages").innerHTML="";
-    data.pages.forEach(p=>{
-      const b=document.createElement("button");
-      b.className="w-full text-left p-3 rounded-xl bg-white/5 hover:bg-white/10";
-      b.innerHTML=`<div>Page ${p.page}</div><div class="text-[10px] text-white/35 mt-1">${p.items.length} detected · ${p.mode}</div>`;
-      b.onclick=()=>show(p.page,true);$("pages").appendChild(b);
-    });
-    await show(1,true);
-    status(`${data.page_count} pages loaded`);
-    $("export").disabled=false;
-  }catch(err){status("Analysis failed");alert(String(err))}
+    const fd=new FormData();fd.append("file",f);const r=await fetch("/api/analyze",{method:"POST",body:fd});if(!r.ok)throw new Error(await r.text());analysis=await r.json();
+    pdf=await pdfjs.getDocument({data:sourceBytes}).promise;$("pages").innerHTML="";
+    for(const p of analysis.pages){const b=document.createElement("button");b.className="thumb";b.innerHTML=`<div class="thumbWrap"><div class="text-[11px] mb-1">Page ${p.page}</div><canvas class="thumbCanvas"></canvas></div>`;b.onclick=()=>showPage(p.page,true);$("pages").appendChild(b);const tc=b.querySelector("canvas");const pp=await pdf.getPage(p.page);const v=pp.getViewport({scale:180/pp.getViewport({scale:1}).width});tc.width=Math.ceil(v.width);tc.height=Math.ceil(v.height);await pp.render({canvasContext:tc.getContext("2d"),viewport:v}).promise}
+    await showPage(1,true);status(`${pdf.numPages} pages • ${analysis.pages.reduce((n,p)=>n+p.items.length,0)} editable regions`);updateButtons();
+  }catch(e){console.error(e);status("Analysis failed");toast(e.message||"Could not open PDF")}
 }
 
-$("open").onclick=$("choose").onclick=()=>$("file").click();
-$("file").onchange=openFile;
-$("apply").onclick=()=>applyEdit($("replacement").value);
-$("mobileApply").onclick=()=>applyEdit($("mobileReplacement").value);
-$("mobileClose").onclick=()=>$("mobileInspector").classList.add("hidden");
-
-$("zoomIn").onclick=async()=>{
-  scale=Math.min(MAX,scale*1.2);
-  await renderCurrent();
-};
-$("zoomOut").onclick=async()=>{
-  scale=Math.max(MIN,scale/1.2);
-  await renderCurrent();
-};
-$("zoomLabel").onclick=async()=>{
-  if(!pdf)return;
-  scale=fitScale(await pdf.getPage(current));
-  await renderCurrent();
-};
-window.addEventListener("resize",()=>{
-  if(!pdf)return;
-  if(window.innerWidth<1024)show(current,true);
-});
-
-$("export").onclick=async()=>{
-  const f=$("file").files[0];
-  if(!f){status("No PDF loaded");return}
-  if(!edits.length){status("No edits to export");return}
-  const btn=$("export");btn.disabled=true;status("Exporting…");
-  try{
-    const fd=new FormData();
-    fd.append("file",f);
-    fd.append("edits_json",JSON.stringify(edits));
-    const r=await fetch("/api/edit",{method:"POST",body:fd});
-    if(!r.ok){
-      let msg=await r.text();
-      try{msg=JSON.parse(msg).detail||msg}catch{}
-      throw new Error(msg);
-    }
-    const blob=await r.blob();
-    if(blob.size<100){throw new Error("Server returned an empty PDF.")}
-    const u=URL.createObjectURL(blob),a=document.createElement("a");
-    a.href=u;a.download="aetherpdf-edited.pdf";
-    document.body.appendChild(a);a.click();a.remove();
-    setTimeout(()=>URL.revokeObjectURL(u),3000);
-    status("Export complete ✓");
-  }catch(err){
-    console.error(err);status("Export failed");
-    alert("Export failed:\\n\\n"+err.message);
-  }finally{btn.disabled=false}
-};
-</script></body></html>
+$("open").onclick=$("choose").onclick=()=>$("file").click();$("file").onchange=openFile;
+$("apply").onclick=()=>applyEdit($("replacement").value);$("mobileApply").onclick=()=>applyEdit($("mobileReplacement").value);$("mobileClose").onclick=()=>$("mobileInspector").classList.add("hidden");
+$("prev").onclick=()=>showPage(current-1,true);$("next").onclick=()=>showPage(current+1,true);$("zoomIn").onclick=async()=>{if(!pdf)return;scale=Math.min(MAX,scale*1.2);await renderCurrent()};$("zoomOut").onclick=async()=>{if(!pdf)return;scale=Math.max(MIN,scale/1.2);await renderCurrent()};$("zoomLabel").onclick=async()=>{if(!pdf)return;scale=fitScale(await pdf.getPage(current));await renderCurrent()};
+$("undo").onclick=undo;$("clear").onclick=clearEdits;
+$("export").onclick=async()=>{if(!sourceFile||!edits.length||busy)return;busy=true;updateButtons();$("exportLabel").textContent="Exporting…";status("Creating final PDF…");try{const fd=new FormData();fd.append("file",sourceFile);fd.append("edits_json",JSON.stringify(edits));const r=await fetch("/api/edit",{method:"POST",body:fd});if(!r.ok){let m=await r.text();try{m=JSON.parse(m).detail||m}catch{}throw new Error(m)}const blob=await r.blob();const u=URL.createObjectURL(blob),a=document.createElement("a");a.href=u;a.download=(sourceFile.name.replace(/\.pdf$/i,"")||"document")+"-edited.pdf";document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),3000);status("Export complete ✓");toast("PDF exported")}catch(e){status("Export failed");toast(e.message||"Export failed")}finally{busy=false;$("exportLabel").textContent="Export";updateButtons()}};
+window.addEventListener("resize",()=>{if(pdf)showPage(current,true)});
+</script>
+</body>
+</html>
